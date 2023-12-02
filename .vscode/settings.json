@@ -4,6 +4,10 @@
   "files.associations": {
     "i2c.h": "c",
     "memory_resource": "c",
-    "random": "c"
+    "random": "c",
+    "array": "c",
+    "string_view": "c",
+    "initializer_list": "c",
+    "stddef.h": "c"
   }
 }
