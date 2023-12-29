@@ -4,29 +4,78 @@
 #include <errno.h>
 
 #include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
-#include <zephyr/drivers/i2c.h>
 #include <zephyr/sys/printk.h>
+#include <zephyr/logging/log.h>
 #include <zephyr/drivers/uart.h>
 
 /**
  * This program reads data over uart1, then prints the receved data along with debug info
- * to uart0 with.
+ * to uart0.
  */
 
-const struct device *gps_uart = DEVICE_DT_GET(DT_NODELABEL(uart1));  // uart1: TX = P0.04, RX = P0.05.    TO BE USED FOR UART COMMS WITH GPS
+LOG_MODULE_REGISTER(main, LOG_LEVEL_DBG);
 
-#define BUFF_SIZE 50  // Note: UART_RX_RDY event only occurs when RX buffer is full.
+#define DEBUG_PRINT_ENABLED 1
+
+const struct device *gps_uart = DEVICE_DT_GET(DT_NODELABEL(uart1));  // uart1: TX = P0.04, RX = P0.05.    TO BE USED FOR UART COMMS WITH GPS
+const struct device *dbg_uart = DEVICE_DT_GET(DT_NODELABEL(uart0));  // uart0: TX = P0.28, RX = P0.30.    TO BE USED FOR UART DEBUGGING
+
+#define BUFF_SIZE 100  // Note: UART_RX_RDY event only occurs when RX buffer is full.
 static char* rx_buf;  // Buffer that is used internally by UART callback
+
+// Buffer to hold newest NMEA data
+char combined_nmea_output[2*BUFF_SIZE];
+char prev_uart_str[BUFF_SIZE];
+
+uint8_t new_data_flag = 0;
+
+
+static void dbg_print(char* buf, int len) {
+	/**
+	 * Helper function to print things over debug uart
+ 	 */
+	if (DEBUG_PRINT_ENABLED) {
+		uart_tx(dbg_uart, buf, len, SYS_FOREVER_US);
+	}
+}
 
 
 void handle_uart_rx_data(struct uart_event *evt) {
 	/**
 	 * Parse string received over UART and store important info. 
   	 */
-	for (int i=0; i < evt->data.rx.len; i++) {
-		printk("%c", evt->data.rx.buf[evt->data.rx.offset + i]);
+
+	// Merge this UART buffer with the last one so we don't miss messages that might be split between the two
+	memcpy(combined_nmea_output, prev_uart_str, BUFF_SIZE);
+	memcpy(combined_nmea_output+BUFF_SIZE, &(evt->data.rx.buf[evt->data.rx.offset]), BUFF_SIZE);
+
+	new_data_flag = 1;  // set flag to 1 to indicate to other threads that new data is ready
+
+	// Search for $GPRMC
+	char* GGA_msg_start = strstr(combined_nmea_output, "$GPRMC");
+	char* GGA_msg_end = strchr(GGA_msg_start+1, '\n');
+	
+	if (GGA_msg_start != NULL && GGA_msg_end !=NULL) {
+		// combined_nmea_output contains a full GPRMC message
 	}
+
+	// 	char type[7];
+	// 	int time;
+	// 	float latitude, longitude, altitude;
+	// 	char latDirection, longDirection, altitudeUnit;
+	// 	int fixQuality, numSatellites;
+	// 	float HDOP;
+
+	// 	// Use sscanf to parse the NMEA string
+	// 	sscanf(nmea_output, "%6[^,],%d,%f,%c,%f,%c,%d,%d,%f,%f,%c",
+	// 		type, &time, &latitude, &latDirection, &longitude, &longDirection,
+	// 		&fixQuality, &numSatellites, &HDOP, &altitude, &altitudeUnit, );
+
+	// Save the current UART string to use next cycle
+	memcpy(prev_uart_str, &(evt->data.rx.buf[evt->data.rx.offset]), BUFF_SIZE);
 }
 
 
@@ -43,10 +92,10 @@ static void gps_uart_cb(const struct device *dev, struct uart_event *evt, void *
 			if (rx_buf) {
 				ret = uart_rx_buf_rsp(gps_uart, rx_buf, BUFF_SIZE);
 				if (ret) { 
-					printk("uart_rx_buf_rsp with ret=%d\n", ret);
+					dbg_print("uart_rx_buf_rsp failed.", sizeof("uart_rx_buf_rsp failed."));
 				}
 			} else {
-				printk("Not able to allocate UART receive buffer.");
+				dbg_print("Not able to allocate UART receive buffer.", sizeof("Not able to allocate UART receive buffer."));
 			}
 			break;
 		case UART_RX_BUF_RELEASED:
@@ -55,7 +104,7 @@ static void gps_uart_cb(const struct device *dev, struct uart_event *evt, void *
 		case UART_RX_DISABLED:
 			ret = uart_rx_enable(gps_uart, rx_buf, BUFF_SIZE, SYS_FOREVER_US);
 			if (ret) { 
-				printk("uart_rx_enable with ret=%d\n", ret);
+				dbg_print("uart_rx_enable failed.", sizeof("uart_rx_enable failed."));
 			}
 			break;
 		default:
@@ -66,33 +115,59 @@ static void gps_uart_cb(const struct device *dev, struct uart_event *evt, void *
 
 int main(void) {
 
-	k_msleep(1000);
 	int ret;
+
+	/////////////////////////////////// DEBUG UART SETUP ///////////////////////////////////
+	if (!device_is_ready(dbg_uart)) {
+		return -1;
+	}
 
 	/////////////////////////////////// GPS UART SETUP ///////////////////////////////////
 	if (!device_is_ready(gps_uart)) {
-		printk("uart not ready. returning.\n");
+		dbg_print("uart not ready. returning.\n", sizeof("uart not ready. returning.\n"));
 		return -1;
 	}
 
 	ret = uart_callback_set(gps_uart, gps_uart_cb, NULL);
 	if (ret) {
-		printk("uart_callback_set failed. returning.\n");
+		dbg_print("gps_uart_cb set failed.", sizeof("gps_uart_cb set failed."));
 		return ret;
 	}
 
 	k_msleep(1000);
 	ret = uart_rx_enable(gps_uart, rx_buf, BUFF_SIZE, SYS_FOREVER_US);
 	if (ret) {
-		printk("uart_rx_enable failed with ret=%d. returning.\n", ret);
+		dbg_print("gps_uart uart_rx_enable failed.", sizeof("gps_uart uart_rx_enable failed."));
 		return ret;
 	}
+
+	// Initialize GPS uart buffer to nulls
+	memset(prev_uart_str, 0, sizeof(prev_uart_str));
 
 	/////////////////////////////////// MAIN LOOP ///////////////////////////////////
 	int ctr = 0;
 	while (1) {
 		ctr++;
-		k_msleep(500);
+		k_msleep(250);
+
+
+		if (new_data_flag) {
+			// dbg_print("\n==============================\n", sizeof("\n==============================\n"));
+			printk("\n==============================\n");
+			for (int i=0; i < 2*BUFF_SIZE; i++) {
+				if (i == BUFF_SIZE) {
+					printk("\n------------------------------\n");
+				}
+				// dbg_print(&(combined_nmea_output[i]), 1);  // Pass ptr to char
+				printk("%c", combined_nmea_output[i]);
+				k_msleep(1);
+			}
+			// dbg_print("\n==============================\n", sizeof("\n==============================\n"));
+			printk("\n==============================\n");
+
+			new_data_flag = 0;  // reset flag
+		}
+		
 	}
 
 	return 0;
