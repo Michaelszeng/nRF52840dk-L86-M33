@@ -23,12 +23,13 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_DBG);
 const struct device *gps_uart = DEVICE_DT_GET(DT_NODELABEL(uart1));  // uart1: TX = P0.04, RX = P0.05.    TO BE USED FOR UART COMMS WITH GPS
 const struct device *dbg_uart = DEVICE_DT_GET(DT_NODELABEL(uart0));  // uart0: TX = P0.28, RX = P0.30.    TO BE USED FOR UART DEBUGGING
 
-#define BUFF_SIZE 100  // Note: UART_RX_RDY event only occurs when RX buffer is full.
+// Buffer size that is large enough to fully capture a single NMEA sentence without causing printing to drop messages
+#define BUFF_SIZE 75  // Note: UART_RX_RDY event only occurs when RX buffer is full.
 static char* rx_buf;  // Buffer that is used internally by UART callback
 
 // Buffer to hold newest NMEA data
-char combined_nmea_output[2*BUFF_SIZE];
-char prev_uart_str[BUFF_SIZE];
+static char combined_nmea_output[2*BUFF_SIZE] = {0};
+static char prev_uart_str[BUFF_SIZE] = {0};
 
 uint8_t new_data_flag = 0;
 
@@ -46,21 +47,29 @@ static void dbg_print(char* buf, int len) {
 void handle_uart_rx_data(struct uart_event *evt) {
 	/**
 	 * Parse string received over UART and store important info. 
+	 * 
+	 * Called every time rx_buf is full
   	 */
 
 	// Merge this UART buffer with the last one so we don't miss messages that might be split between the two
 	memcpy(combined_nmea_output, prev_uart_str, BUFF_SIZE);
 	memcpy(combined_nmea_output+BUFF_SIZE, &(evt->data.rx.buf[evt->data.rx.offset]), BUFF_SIZE);
 
+	// Printing
+	printk("\n==============================\n");
+	combined_nmea_output[2*BUFF_SIZE-1] = '\0';
+	printk("%s", combined_nmea_output);
+	printk("\n==============================\n\n");
+
 	new_data_flag = 1;  // set flag to 1 to indicate to other threads that new data is ready
 
-	// Search for $GPRMC
-	char* GGA_msg_start = strstr(combined_nmea_output, "$GPRMC");
-	char* GGA_msg_end = strchr(GGA_msg_start+1, '\n');
+	// // Search for $GPRMC
+	// char* GGA_msg_start = strstr(combined_nmea_output, "$GPRMC");
+	// char* GGA_msg_end = strchr(GGA_msg_start+1, '\n');
 	
-	if (GGA_msg_start != NULL && GGA_msg_end !=NULL) {
-		// combined_nmea_output contains a full GPRMC message
-	}
+	// if (GGA_msg_start != NULL && GGA_msg_end !=NULL) {
+	// 	// combined_nmea_output contains a full GPRMC message
+	// }
 
 	// 	char type[7];
 	// 	int time;
@@ -115,6 +124,7 @@ static void gps_uart_cb(const struct device *dev, struct uart_event *evt, void *
 
 int main(void) {
 
+	k_msleep(2000);
 	int ret;
 
 	/////////////////////////////////// DEBUG UART SETUP ///////////////////////////////////
@@ -141,32 +151,11 @@ int main(void) {
 		return ret;
 	}
 
-	// Initialize GPS uart buffer to nulls
-	memset(prev_uart_str, 0, sizeof(prev_uart_str));
-
 	/////////////////////////////////// MAIN LOOP ///////////////////////////////////
 	int ctr = 0;
 	while (1) {
 		ctr++;
-		k_msleep(250);
-
-
-		if (new_data_flag) {
-			// dbg_print("\n==============================\n", sizeof("\n==============================\n"));
-			printk("\n==============================\n");
-			for (int i=0; i < 2*BUFF_SIZE; i++) {
-				if (i == BUFF_SIZE) {
-					printk("\n------------------------------\n");
-				}
-				// dbg_print(&(combined_nmea_output[i]), 1);  // Pass ptr to char
-				printk("%c", combined_nmea_output[i]);
-				k_msleep(1);
-			}
-			// dbg_print("\n==============================\n", sizeof("\n==============================\n"));
-			printk("\n==============================\n");
-
-			new_data_flag = 0;  // reset flag
-		}
+		k_msleep(1);
 		
 	}
 
