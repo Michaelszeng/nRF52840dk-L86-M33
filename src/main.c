@@ -130,17 +130,17 @@ void handle_uart_rx_data(struct uart_event *evt) {
 		sscanf(strchr(GSA_msg_start+1, '*')+1, "%x", &checksum);
 		
 		// Debug output to verify parsing results
-		printk("Type: %s\n", type);
-		printk("Mode: %c\n", mode);
-		printk("Fix Type: %d\n", fix_type);
+		LOG_INF("Type: %s\n", type);
+		LOG_INF("Mode: %c\n", mode);
+		LOG_INF("Fix Type: %d\n", fix_type);
 		for (int i = 0; i < 12; i++) {
-			printk("PRN[%d]: %d\n", i, prn[i]);
+			LOG_INF("PRN[%d]: %d\n", i, prn[i]);
 		}
-		printk("PDOP: %f\n", pdop);
-		printk("HDOP: %f\n", hdop);
-		printk("VDOP: %f\n", vdop);
-		printk("GNSS ID: %d\n", gnss_id);
-		printk("Checksum: %02X\n", checksum);
+		LOG_INF("PDOP: %f\n", pdop);
+		LOG_INF("HDOP: %f\n", hdop);
+		LOG_INF("VDOP: %f\n", vdop);
+		LOG_INF("GNSS ID: %d\n", gnss_id);
+		LOG_INF("Checksum: %02X\n", checksum);
 	}
 
 
@@ -208,17 +208,17 @@ void handle_uart_rx_data(struct uart_event *evt) {
 		// Parse the checksum
 		sscanf(strchr(GSA_msg_start+1, '*')+1, "%x", &checksum);
 
-		printk("Type: %s\n", type);
-		printk("Time: %.3f\n", time);
-		printk("Status: %c\n", status);
-		printk("Latitude: %.4f %c\n", latitude, ns);
-		printk("Longitude: %.4f %c\n", longitude, ew);
-		printk("Speed: %.2f knots\n", speed);
-		printk("True Course: %.2f degrees\n", true_course);
-		printk("Date: %s\n", date);
-		printk("Mode: %c\n", mode);
-		printk("FAA mode: %c\n", faa);
-		printk("Checksum: %X\n", checksum);
+		LOG_INF("Type: %s\n", type);
+		LOG_INF("Time: %.3f\n", time);
+		LOG_INF("Status: %c\n", status);
+		LOG_INF("Latitude: %.4f %c\n", latitude, ns);
+		LOG_INF("Longitude: %.4f %c\n", longitude, ew);
+		LOG_INF("Speed: %.2f knots\n", speed);
+		LOG_INF("True Course: %.2f degrees\n", true_course);
+		LOG_INF("Date: %s\n", date);
+		LOG_INF("Mode: %c\n", mode);
+		LOG_INF("FAA mode: %c\n", faa);
+		LOG_INF("Checksum: %X\n", checksum);
 	}
 	printk("\n==============================\n\n");
 
