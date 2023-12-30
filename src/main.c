@@ -168,7 +168,7 @@ void handle_uart_rx_data(struct uart_event *evt) {
 
 		char type[7] = "";
 		float time = 0.0f, speed = 0.0f, true_course = 0.0f;
-		char status = '\0', ns = '\0', ew = '\0', mode = '\0', faa = '\0';
+		char status = '\0', ns = '\0', ew = '\0', mode = '\0', faa = '\0';  // mode and faa mode probably not useful
 		char date[7] = "";
 		float latitude = 0.0f, longitude = 0.0f;
 		int checksum = -1;
@@ -206,7 +206,7 @@ void handle_uart_rx_data(struct uart_event *evt) {
 		}
 		
 		// Parse the checksum
-		sscanf(strchr(GSA_msg_start+1, '*')+1, "%x", &checksum);
+		sscanf(strchr(RMC_msg_start+1, '*')+1, "%x", &checksum);
 
 		LOG_INF("Type: %s\n", type);
 		LOG_INF("Time: %.3f\n", time);
@@ -216,8 +216,8 @@ void handle_uart_rx_data(struct uart_event *evt) {
 		LOG_INF("Speed: %.2f knots\n", speed);
 		LOG_INF("True Course: %.2f degrees\n", true_course);
 		LOG_INF("Date: %s\n", date);
-		LOG_INF("Mode: %c\n", mode);
-		LOG_INF("FAA mode: %c\n", faa);
+		// LOG_INF("Mode: %c\n", mode);
+		// LOG_INF("FAA mode: %c\n", faa);
 		LOG_INF("Checksum: %X\n", checksum);
 	}
 	printk("\n==============================\n\n");
