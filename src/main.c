@@ -82,41 +82,65 @@ void handle_uart_rx_data(struct uart_event *evt) {
 	char* GSA_msg_end = strchr(GSA_msg_start+1, '\n');
 
 	if (GSA_msg_start != NULL && GSA_msg_end != NULL) {  // combined_nmea_output contains a full $XXGSA message
-		printk("\nFOUND GSA MESSAGE\n");
+		printk("\n\nFOUND GSA MESSAGE\n");
 
-		char type[7];
-		char mode;
-		int fix_type;
-		int prn[12];  // up to 12 satellites
-		float pdop, hdop, vdop;
-		int gnss_id;
-		int checksum;
+		// Initialize variables to default "null" values
+		char type[7] = {0};
+		char mode = '\0';
+		int fix_type = -1;  // 2 or 3 means successful fix
+		int prn[12];
+		for (int i = 0; i < 12; i++) prn[i] = -1;  // Initialize all PRNs to -1 (null)
+		float pdop = -1.0f, hdop = -1.0f, vdop = -1.0f;
+		int gnss_id = -1;
+		int checksum = -1;
 
-		// Parse the NMEA sentence
-		int parsed = sscanf(GSA_msg_start, "%6s,%c,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%f,%f,%f,%d*%x",
-							type, &mode, &fix_type,
-							&prn[0], &prn[1], &prn[2], &prn[3], &prn[4], &prn[5],
-							&prn[6], &prn[7], &prn[8], &prn[9], &prn[10], &prn[11],
-							&pdop, &hdop, &vdop, &gnss_id, &checksum);
+		const char* current = GSA_msg_start;
+		char field[20];  // Adjust size as needed for the largest expected field
+		int fieldIndex = 0;
+		int prnIndex = 0;
 
-		// Check if parsing succeeded
-		if (parsed >= 20) { // Ensure mandatory fields are parsed
-			printk("Parsed successfully:\n");
-			printk("Type: %s\n", type);
-			printk("Mode: %c\n", mode);
-			printk("Fix Type: %d\n", fix_type);
-			for (int i = 0; i < 12; i++) {
-				if (prn[i] != 0) { // Print only if satellite PRN is available
-					printk("Satellite PRN %d: %d\n", i + 1, prn[i]);
-				}
+		while (*current && *current != '*') {  // Stop at the end of the string or the checksum indicator
+			const char* next = current;
+			while (*next && *next != ',' && *next != '*') next++;  // Find the end of the current field
+
+			// Copy the current field into 'field'
+			strncpy(field, current, next - current);
+			field[next - current] = '\0';
+
+			// Parse the current field based on its position
+			switch (fieldIndex) {
+				case 0: sscanf(field, "%6s", type); break;
+				case 1: sscanf(field, "%c", &mode); break;
+				case 2: sscanf(field, "%d", &fix_type); break;
+				// Handle PRNs (satellite numbers)
+				case 3: case 4: case 5: case 6: case 7: case 8: case 9: case 10: case 11: case 12: case 13: case 14:
+					if (*field) sscanf(field, "%d", &prn[prnIndex++]);
+					break;
+				case 15: sscanf(field, "%f", &pdop); break;
+				case 16: sscanf(field, "%f", &hdop); break;
+				case 17: sscanf(field, "%f", &vdop); break;
+				case 18: sscanf(field, "%d", &gnss_id); break;
 			}
-			printk("PDOP: %.2f\n", pdop);
-			printk("HDOP: %.2f\n", hdop);
-			printk("VDOP: %.2f\n", vdop);
-			printk("Checksum: %X\n", checksum);
-		} else {
-			printk("Parsing failed. Parsed %d fields.\n", parsed);
+
+			current = next + 1;  // Move to the start of the next field
+			fieldIndex++;
 		}
+
+		// Parse the checksum
+		sscanf(strchr(GSA_msg_start+1, '*')+1, "%x", &checksum);
+		
+		// Debug output to verify parsing results
+		printk("Type: %s\n", type);
+		printk("Mode: %c\n", mode);
+		printk("Fix Type: %d\n", fix_type);
+		for (int i = 0; i < 12; i++) {
+			printk("PRN[%d]: %d\n", i, prn[i]);
+		}
+		printk("PDOP: %f\n", pdop);
+		printk("HDOP: %f\n", hdop);
+		printk("VDOP: %f\n", vdop);
+		printk("GNSS ID: %d\n", gnss_id);
+		printk("Checksum: %02X\n", checksum);
 	}
 
 
@@ -140,37 +164,61 @@ void handle_uart_rx_data(struct uart_event *evt) {
 	char* RMC_msg_end = strchr(RMC_msg_start+1, '\n');
 	
 	if (RMC_msg_start != NULL && RMC_msg_end != NULL) {  // combined_nmea_output contains a full $XXRMC message
-		printk("\nFOUND RMC MESSAGE\n");
+		printk("\n\nFOUND RMC MESSAGE\n");
 
-		char type[7];
-		float time, speed, true_course;
-		char status, ns, ew, mode, faa;
-		char date[7];
-		float latitude, longitude;
-		int checksum;
+		char type[7] = "";
+		float time = 0.0f, speed = 0.0f, true_course = 0.0f;
+		char status = '\0', ns = '\0', ew = '\0', mode = '\0', faa = '\0';
+		char date[7] = "";
+		float latitude = 0.0f, longitude = 0.0f;
+		int checksum = -1;
 
-		// Parse the NMEA sentence
-		int parsed = sscanf(RMC_msg_start, "%6s,%f,%c,%f,%c,%f,%c,%f,%f,%6s,,,%c,%c*%x",
-							type, &time, &status, &latitude, &ns, &longitude, &ew,
-							&speed, &true_course, date, &mode, &faa, &checksum);
+		const char* current = RMC_msg_start;
+		char field[20];  // Adjust size as needed for the largest expected field
+		int fieldIndex = 0;
 
-		// Check if parsing succeeded
-		if (parsed >= 13) {
-			printk("Parsed successfully:\n");
-			printk("Type: %s\n", type);
-			printk("Time: %.3f\n", time);
-			printk("Status: %c\n", status);
-			printk("Latitude: %.4f %c\n", latitude, ns);
-			printk("Longitude: %.4f %c\n", longitude, ew);
-			printk("Speed: %.2f knots\n", speed);
-			printk("True Course: %.2f degrees\n", true_course);
-			printk("Date: %s\n", date);
-			printk("Mode: %c\n", mode);
-			printk("FAA mode: %c\n", faa);
-			printk("Checksum: %X\n", checksum);
-		} else {
-			printk("Parsing failed. Parsed %d fields.\n", parsed);
-    	}
+		while (*current && *current != '*') {  // Stop at the end of the string or the checksum indicator
+			const char* next = current;
+			while (*next && *next != ',' && *next != '*') next++;  // Find the end of the current field
+
+			// Copy the current field into 'field'
+			strncpy(field, current, next - current);
+			field[next - current] = '\0';
+
+			// Parse the current field based on its position
+			switch (fieldIndex) {
+				case 0: sscanf(field, "%6s", type); break;
+				case 1: sscanf(field, "%f", &time); break;
+				case 2: sscanf(field, "%c", &status); break;
+				case 3: sscanf(field, "%f", &latitude); break;
+				case 4: sscanf(field, "%c", &ns); break;
+				case 5: sscanf(field, "%f", &longitude); break;
+				case 6: sscanf(field, "%c", &ew); break;
+				case 7: sscanf(field, "%f", &speed); break;
+				case 8: sscanf(field, "%f", &true_course); break;
+				case 9: sscanf(field, "%6s", date); break;
+				case 10: sscanf(field, "%c", &mode); break;
+				case 11: sscanf(field, "%c", &faa); break;
+			}
+
+			current = next + 1;  // Move to the start of the next field
+			fieldIndex++;
+		}
+		
+		// Parse the checksum
+		sscanf(strchr(GSA_msg_start+1, '*')+1, "%x", &checksum);
+
+		printk("Type: %s\n", type);
+		printk("Time: %.3f\n", time);
+		printk("Status: %c\n", status);
+		printk("Latitude: %.4f %c\n", latitude, ns);
+		printk("Longitude: %.4f %c\n", longitude, ew);
+		printk("Speed: %.2f knots\n", speed);
+		printk("True Course: %.2f degrees\n", true_course);
+		printk("Date: %s\n", date);
+		printk("Mode: %c\n", mode);
+		printk("FAA mode: %c\n", faa);
+		printk("Checksum: %X\n", checksum);
 	}
 	printk("\n==============================\n\n");
 
