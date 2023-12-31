@@ -82,8 +82,6 @@ void handle_uart_rx_data(struct uart_event *evt) {
 	char* GSA_msg_end = strchr(GSA_msg_start+1, '\n');
 
 	if (GSA_msg_start != NULL && GSA_msg_end != NULL) {  // combined_nmea_output contains a full $XXGSA message
-		printk("\n\nFOUND GSA MESSAGE\n");
-
 		// Initialize variables to default "null" values
 		char type[7] = {0};
 		char mode = '\0';
@@ -130,17 +128,17 @@ void handle_uart_rx_data(struct uart_event *evt) {
 		sscanf(strchr(GSA_msg_start+1, '*')+1, "%x", &checksum);
 		
 		// Debug output to verify parsing results
-		LOG_INF("Type: %s\n", type);
-		LOG_INF("Mode: %c\n", mode);
-		LOG_INF("Fix Type: %d\n", fix_type);
-		for (int i = 0; i < 12; i++) {
-			LOG_INF("PRN[%d]: %d\n", i, prn[i]);
-		}
-		LOG_INF("PDOP: %f\n", pdop);
-		LOG_INF("HDOP: %f\n", hdop);
-		LOG_INF("VDOP: %f\n", vdop);
-		LOG_INF("GNSS ID: %d\n", gnss_id);
-		LOG_INF("Checksum: %02X\n", checksum);
+		LOG_INF("\n\nType: %s", type);
+		// LOG_INF("Mode: %c", mode);
+		LOG_INF("Fix Type (2 or 3 = fix acquired): %d", fix_type);
+		// for (int i = 0; i < 12; i++) {
+		// 	LOG_INF("PRN[%d]: %d", i, prn[i]);
+		// }
+		// LOG_INF("PDOP: %f", pdop);
+		// LOG_INF("HDOP: %f", hdop);
+		// LOG_INF("VDOP: %f", vdop);
+		// LOG_INF("GNSS ID: %d", gnss_id);
+		LOG_INF("Checksum: %02X", checksum);
 	}
 
 
@@ -164,8 +162,6 @@ void handle_uart_rx_data(struct uart_event *evt) {
 	char* RMC_msg_end = strchr(RMC_msg_start+1, '\n');
 	
 	if (RMC_msg_start != NULL && RMC_msg_end != NULL) {  // combined_nmea_output contains a full $XXRMC message
-		printk("\n\nFOUND RMC MESSAGE\n");
-
 		char type[7] = "";
 		float time = 0.0f, speed = 0.0f, true_course = 0.0f;
 		char status = '\0', ns = '\0', ew = '\0', mode = '\0', faa = '\0';  // mode and faa mode probably not useful
@@ -208,17 +204,97 @@ void handle_uart_rx_data(struct uart_event *evt) {
 		// Parse the checksum
 		sscanf(strchr(RMC_msg_start+1, '*')+1, "%x", &checksum);
 
-		LOG_INF("Type: %s\n", type);
-		LOG_INF("Time: %.3f\n", time);
-		LOG_INF("Status: %c\n", status);
-		LOG_INF("Latitude: %.4f %c\n", latitude, ns);
-		LOG_INF("Longitude: %.4f %c\n", longitude, ew);
-		LOG_INF("Speed: %.2f knots\n", speed);
-		LOG_INF("True Course: %.2f degrees\n", true_course);
-		LOG_INF("Date: %s\n", date);
+		LOG_INF("\n\nType: %s", type);
+		LOG_INF("Time (hhmmss.sss UTC): %.3f", time);
+		LOG_INF("Status (A = data valid): %c", status);
+		LOG_INF("Latitude: %.4f %c", latitude, ns);
+		LOG_INF("Longitude: %.4f %c", longitude, ew);
+		LOG_INF("Speed: %.2f knots", speed);
+		LOG_INF("True Course: %.2f degrees", true_course);
+		LOG_INF("Date: %s", date);
 		// LOG_INF("Mode: %c\n", mode);
 		// LOG_INF("FAA mode: %c\n", faa);
 		LOG_INF("Checksum: %X\n", checksum);
+	}
+
+
+	// Search for $XXGGA (Global Positioning System Fix Data; XX can be either GP, GL, GA, BD, QZ, or GN depending on constellation being used)
+	// GGA message is needed bc it's the only message containing altitude data
+	char* GGA_msg_start_GN = strstr(combined_nmea_output, "$GNGGA");
+	char* GGA_msg_start_GP = strstr(combined_nmea_output, "$GPGGA");
+	char* GGA_msg_start_GL = strstr(combined_nmea_output, "$GLGGA");
+	char* GGA_msg_start_GA = strstr(combined_nmea_output, "$GAGGA");
+	char* GGA_msg_start_BD = strstr(combined_nmea_output, "$BDGGA");
+	char* GGA_msg_start_QZ = strstr(combined_nmea_output, "$QZGGA");
+	char* GGA_msg_start = NULL;
+
+	// Pick any constellation that has a fix
+	if (GGA_msg_start_GN != NULL) GGA_msg_start = GGA_msg_start_GN;  // Check GN (multi-constellation) first
+	else if (GGA_msg_start_GP != NULL) GGA_msg_start = GGA_msg_start_GP;
+	else if (GGA_msg_start_GL != NULL) GGA_msg_start = GGA_msg_start_GL;
+	else if (GGA_msg_start_GA != NULL) GGA_msg_start = GGA_msg_start_GA;
+	else if (GGA_msg_start_BD != NULL) GGA_msg_start = GGA_msg_start_BD;
+	else if (GGA_msg_start_QZ != NULL) GGA_msg_start = GGA_msg_start_QZ;
+
+	char* GGA_msg_end = strchr(GGA_msg_start+1, '\n');
+	
+	if (GGA_msg_start != NULL && GGA_msg_end != NULL) {  // combined_nmea_output contains a full $XXGGA message
+		char type[7] = "";
+		float time = 0.0f;
+		int num_satellites = -1;
+		float latitude = 0.0f, longitude = 0.0f;
+		char ns = '\0', ew = '\0';
+		int fix_quality = -1;
+		float hdop = -1.0f, altitude = 0.0f, geoid_separation = 0.0f;
+		char altitude_unit = '\0', geoid_separation_unit = '\0';
+		int checksum = -1;
+
+		const char* current = GGA_msg_start;
+		char field[20];  // Adjust size as needed for the largest expected field
+		int fieldIndex = 0;
+
+		while (*current && *current != '*') {  // Stop at the end of the string or the checksum indicator
+			const char* next = current;
+			while (*next && *next != ',' && *next != '*') next++;  // Find the end of the current field
+
+			// Copy the current field into 'field'
+			strncpy(field, current, next - current);
+			field[next - current] = '\0';
+
+			// Parse the current field based on its position
+			switch (fieldIndex) {
+				case 0: sscanf(field, "%6s", type); break;
+				case 1: sscanf(field, "%f", &time); break;
+				case 2: sscanf(field, "%f", &latitude); break;
+				case 3: sscanf(field, "%c", &ns); break;
+				case 4: sscanf(field, "%f", &longitude); break;
+				case 5: sscanf(field, "%c", &ew); break;
+				case 6: sscanf(field, "%d", &fix_quality); break;
+				case 7: sscanf(field, "%d", &num_satellites); break;
+				case 8: sscanf(field, "%f", &hdop); break;
+				case 9: sscanf(field, "%f", &altitude); break;
+				case 10: sscanf(field, "%c", &altitude_unit); break;
+				case 11: sscanf(field, "%f", &geoid_separation); break;
+				case 12: sscanf(field, "%c", &geoid_separation_unit); break;
+			}
+
+			current = next + 1;  // Move to the start of the next field
+			fieldIndex++;
+
+			// Parse the checksum
+			sscanf(strchr(GGA_msg_start+1, '*')+1, "%x", &checksum);
+		}
+
+		LOG_INF("\n\nType: %s", type);
+		LOG_INF("Time (hhmmss.sss UTC): %.3f", time);
+		LOG_INF("Num Satellites: %d", num_satellites);
+		LOG_INF("Latitude: %.4f %c", latitude, ns);
+		LOG_INF("Longitude: %.4f %c", longitude, ew);
+		LOG_INF("Fix Quality (1 = fix acquired): %d", fix_quality);
+		// LOG_INF("HDOP: %.2f", hdop);
+		LOG_INF("Altitude: %.2f meters", altitude);
+		// LOG_INF("Geoid Separation: %.2f meters", geoid_separation);
+		LOG_INF("Checksum: %X", checksum);
 	}
 	printk("\n==============================\n\n");
 
